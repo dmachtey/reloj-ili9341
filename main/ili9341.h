@@ -39,22 +39,36 @@ extern "C" {
 
 /* === Public macros definitions =============================================================== */
 
+    #define LCD_SPI_CLK            GPIO_NUM_14         // CLK (Reloj SPI)
+    #define LCD_SPI_MOSI           GPIO_NUM_13         // MOSI (Datos enviados al LCD)
+    #define LCD_SPI_MISO           GPIO_NUM_12         // MISO (No necesario para LCD, pero puede usarse para debug)
+    #define LCD_DC                 GPIO_NUM_2          // DC (Data/Command)
+    #define LCD_CS                 GPIO_NUM_15          // CS (Chip Select)
+    #define LCD_RESET              GPIO_NUM_NC         // Reset (opcional, puede ser GPIO_NUM_NC si no se usa)
+    #define LCD_BUSY               GPIO_NUM_NC         // Busy (no usado en ILI9341)
+
+    // Retroiluminación (backlight)
+    #define LCD_BACKLIGHT          GPIO_NUM_27         // Control de backlight (PWM opcional)
+    #define LCD_BACKLIGHT_LEDC_CH  1                  // Canal LEDC para PWM (si se usa)
+
+
+
 /* LCD pin conections */
 #define ILI9341_SPI_PORT          SPI2_HOST
-#define ILI9341_PIN_NUM_MISO      25
-#define ILI9341_PIN_NUM_MOSI      23
-#define ILI9341_PIN_NUM_CLK       19
-#define ILI9341_PIN_NUM_CS        22
+#define ILI9341_PIN_NUM_MISO      12
+#define ILI9341_PIN_NUM_MOSI      13
+#define ILI9341_PIN_NUM_CLK       14
+#define ILI9341_PIN_NUM_CS        15
 
-#define ILI9341_PIN_NUM_DC        21
+#define ILI9341_PIN_NUM_DC        2
 #define ILI9341_PIN_NUM_RST       18
-#define ILI9341_PIN_NUM_BCKL      5
+#define ILI9341_PIN_NUM_BCKL      27
 
 #define ILI9341_BK_LIGHT_ON_LEVEL 1
 
 /* LCD settings */
-#define ILI9341_WIDTH             240 /*!< LCD width in pixels */
-#define ILI9341_HEIGHT            320 /*!< LCD height in pixels */
+#define ILI9341_WIDTH             320 /*!< LCD width in pixels */
+#define ILI9341_HEIGHT            480 /*!< LCD height in pixels */
 #define ILI9341_PIXEL_MAX         76800
 
 /* Colors */                             /*	 R,   G,   B */
