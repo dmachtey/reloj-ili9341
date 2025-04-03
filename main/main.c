@@ -10,7 +10,7 @@
  * - La tarea displayTask actualiza tres paneles: uno para minutos, otro para segundos y 
  *   otro para décimas. Además, se dibujan separadores (círculos) cuyo color depende de la
  *   paridad de los segundos.
- * - Cada 300 ms se ejecuta la tarea toggleTask, que lee tres botones (PB1, PB2 y PB3), 
+ * - Cada 30 ms se ejecuta la tarea toggleTask, que lee tres botones (PB1, PB2 y PB3), 
  *   actualiza una variable global con su estado actual (con campos "arrancar", "reset" y 
  *   "congelar") y alterna (toggle) el estado de los LEDs correspondientes (LED_ROJO, LED_VERDE 
  *   y LED_AZUL) en cada pulsación.
@@ -63,8 +63,8 @@ typedef struct {
 } botones_state_t;
 
 // Variable global que almacena el estado de los botones.
-// Inicialmente, los botones no se presionan (valor lógico alto)
-botones_state_t botonesEstado = {1, 1, 1};
+// Inicialmente, se parte de la cuenta detenida (arrancar = 0) y sin congelar (congelar = 0).
+botones_state_t botonesEstado = {0, 0, 0};
 
 // Paneles para mostrar el tiempo: minutos, segundos y décimas (2 dígitos cada uno)
 panel_t panel_minutes;   // Panel para minutos
@@ -72,12 +72,12 @@ panel_t panel_seconds;   // Panel para segundos
 panel_t panel_decimas;   // Panel para décimas
 
 // Tarea que incrementa "decimas" cada 10 ms utilizando vTaskDelayUntil.
-// Si se detecta reset en la variable global, se reinicia la cuenta.
+// Si se detecta reset, se reinicia la cuenta.
 // Solo se incrementa si "arrancar" está activo.
 void decimasTask(void *pvParameters) {
     TickType_t xLastWakeTime = xTaskGetTickCount();
     while (true) {
-        if (botonesEstado.reset)
+        if (botonesEstado.reset && !botonesEstado.arrancar)
             decimas = 0;
         else if (botonesEstado.arrancar)
             decimas++;
@@ -86,7 +86,7 @@ void decimasTask(void *pvParameters) {
 }
 
 // Tarea que actualiza los paneles de tiempo cada 45 ms.
-// Se calcula el tiempo a partir de la variable "decimas":
+// Se calcula el tiempo a partir de "decimas":
 //   • minutos = decimas / 6000
 //   • segundos = (decimas / 100) % 60
 //   • décimas = decimas % 100
@@ -106,7 +106,7 @@ void displayTask(void *pvParameters) {
         DibujarDigito(panel_minutes, 1, mins % 10);
 
         // Determina el color de los círculos según la paridad de los segundos
-        uint16_t circleColor = (secs % 2 == 0) ? DIGITO_APAGADO : DIGITO_ENCENDIDO;
+        uint16_t circleColor = (secs % 2 > 0) ? DIGITO_APAGADO : DIGITO_ENCENDIDO;
 
         // Dibuja separador entre minutos y segundos
         ILI9341DrawFilledCircle(160 + OFFSET_X, 90 + 20, 5, circleColor);
@@ -129,43 +129,65 @@ void displayTask(void *pvParameters) {
 }
 
 // Tarea que lee los botones cada 300 ms y alterna (toggle) el estado de los LEDs correspondientes.
-// Además, actualiza la variable global "botonesEstado" con el estado actual de cada botón.
+// Se actualiza la variable global "botonesEstado" con el estado actual de cada botón.
+// Además, se renombraron las variables internas a PB1State, PB2State y PB3State.
 void toggleTask(void *pvParameters) {
     int prevPB1 = 1, prevPB2 = 1, prevPB3 = 1;
-    int ledRojoState = 1, ledVerdeState = 1, ledAzulState = 1; // Inicialmente, LEDs apagados (nivel 1)
+    int PB1State = 1, PB2State = 1, PB3State = 1; // Inicialmente, todos en 1 (cuenta activa = 1)
     
     while (1) {
         int currPB1 = gpio_get_level(PB1);
         int currPB2 = gpio_get_level(PB2);
         int currPB3 = gpio_get_level(PB3);
 
-        // Actualiza la variable global con el estado actual de los botones.
-        // Se invierte el valor de PB2 y PB3 según la lógica de toggle implementada.
-        botonesEstado.reset    = !currPB2;
+        // Actualiza el estado del botón para reset: se invierte el valor de PB2.
+        botonesEstado.reset = !currPB2;
         
-        // Si se detecta un flanco de bajada en PB1, se alterna el estado del LED_ROJO.
+        // Al detectar flanco descendente en PB1, se alterna PB1State y se actualiza "arrancar".
         if (currPB1 == 0 && prevPB1 == 1) {
-            ledRojoState = (ledRojoState == 1) ? 0 : 1;
-            botonesEstado.arrancar = (ledRojoState == 1) ? 0 : 1;
-            gpio_set_level(LED_ROJO, ledRojoState);
+            PB1State = (PB1State == 1) ? 0 : 1;
+            botonesEstado.arrancar = (PB1State == 1) ? 0 : 1;
+            botonesEstado.congelar = (botonesEstado.arrancar == 0) ? 1 : 0;
         }
-        // Si se detecta un flanco de bajada en PB2, se alterna el estado del LED_VERDE.
+
+        // Para PB2 se podría implementar otra acción (por ejemplo, para LED_VERDE).
         if (currPB2 == 0 && prevPB2 == 1) {
-            ledVerdeState = (ledVerdeState == 1) ? 0 : 1;
-            gpio_set_level(LED_VERDE, ledVerdeState);
+            PB2State = (PB2State == 1) ? 0 : 1;
+            botonesEstado.congelar = 0;
         }
-        // Si se detecta un flanco de bajada en PB3, se alterna el estado del LED_AZUL.
+        // Al detectar flanco descendente en PB3, se alterna PB3State y se actualiza "congelar"
+        // en función del estado de la cuenta.
         if (currPB3 == 0 && prevPB3 == 1) {
-            ledAzulState = (ledAzulState == 1) ? 0 : 1;
-            botonesEstado.congelar = (ledAzulState == 1) ? 0 : 1;
-            gpio_set_level(LED_AZUL, ledAzulState);
+            PB3State = (PB3State == 1) ? 0 : 1;
         }
+
 
         prevPB1 = currPB1;
         prevPB2 = currPB2;
         prevPB3 = currPB3;
 
         vTaskDelay(pdMS_TO_TICKS(30));
+    }
+}
+
+// Tarea que actualiza el estado de los LEDs de estatus.
+// Se enciende el LED_ROJO (nivel 0) cuando la cuenta está detenida y congelada.
+// El LED_VERDE parpadea cuando la cuenta está activa.
+void LedStatusTask(void *pvParameters) {
+    static uint8_t ledVerde = 1;
+    while(1) {
+        if (botonesEstado.arrancar)
+            ledVerde = (ledVerde == 0) ? 1 : 0;
+        else
+            ledVerde = 1;
+
+        gpio_set_level(LED_VERDE, (botonesEstado.congelar == 0) ? ledVerde : 1);
+
+        // Cuando la cuenta está detenida (arrancar == 0) y congelada (congelar == 1),
+        // se enciende el LED_ROJO (nivel 0).
+        gpio_set_level(LED_ROJO, (botonesEstado.congelar == 0) ? 1 : 0);
+
+        vTaskDelay(pdMS_TO_TICKS(500));
     }
 }
 
@@ -182,6 +204,9 @@ StackType_t xDisplayStack[STACK_SIZE];
 StaticTask_t xToggleTaskBuffer;
 StackType_t xToggleStack[STACK_SIZE];
 
+StaticTask_t xLedStatusTaskBuffer;
+StackType_t xLedStatusStack[STACK_SIZE];
+
 void app_main(void) {
     // Inicializa el LCD y lo rota en modo Landscape
     ILI9341Init();
@@ -195,7 +220,7 @@ void app_main(void) {
     panel_decimas = CrearPanel(310 + OFFSET_X, 80, 2, DIGITO_ALTO, DIGITO_ANCHO,
                                 DIGITO_ENCENDIDO, DIGITO_APAGADO, DIGITO_FONDO);
 
-    // Configura los pines de los LEDs como salida y los inicializa apagados (nivel 1)
+    // Configura los pines de los LEDs como salida e inicializa todos apagados (nivel 1)
     gpio_set_direction(LED_ROJO, GPIO_MODE_OUTPUT);
     gpio_set_direction(LED_VERDE, GPIO_MODE_OUTPUT);
     gpio_set_direction(LED_AZUL, GPIO_MODE_OUTPUT);
@@ -212,16 +237,14 @@ void app_main(void) {
     gpio_pullup_en(PB3);
 
     // Crea las tareas usando xTaskCreateStatic
-    xTaskCreateStatic(decimasTask, "DecimasTask", STACK_SIZE, NULL, tskIDLE_PRIORITY + 1, 
+    xTaskCreateStatic(decimasTask, "DecimasTask", STACK_SIZE, NULL, tskIDLE_PRIORITY + 3, 
                       xDecimasStack, &xDecimasTaskBuffer);
     xTaskCreateStatic(displayTask, "DisplayTask", STACK_SIZE, NULL, tskIDLE_PRIORITY + 1, 
                       xDisplayStack, &xDisplayTaskBuffer);
-    xTaskCreateStatic(toggleTask, "ToggleTask", STACK_SIZE, NULL, tskIDLE_PRIORITY + 1, 
+    xTaskCreateStatic(toggleTask, "ToggleTask", STACK_SIZE, NULL, tskIDLE_PRIORITY + 2, 
                       xToggleStack, &xToggleTaskBuffer);
-
-    // Inicializa manualmente los estados de "congelar" y "arrancar"
-    botonesEstado.congelar = 0;
-    botonesEstado.arrancar = 0; 
+    xTaskCreateStatic(LedStatusTask, "LedStatusTask", STACK_SIZE, NULL, tskIDLE_PRIORITY + 1, 
+                      xLedStatusStack, &xLedStatusTaskBuffer);
 
     // Se elimina la tarea principal, ya que todo se gestiona en las tareas creadas
     vTaskDelete(NULL);
