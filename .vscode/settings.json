@@ -1,12 +1,12 @@
 {
     "C_Cpp.intelliSenseEngine": "default",
-    "idf.espIdfPath": "/Users/evolentini/esp/v5.4/esp-idf",
-    "idf.pythonInstallPath": "/usr/local/bin/python3",
+    "idf.espIdfPath": "/home/damian/esp/v5.4/esp-idf",
+    "idf.pythonInstallPath": "/usr/bin/python3",
     "idf.openOcdConfigs": [
         "board/esp32-wrover-kit-3.3v.cfg"
     ],
-    "idf.port": "/dev/tty.usbserial-14130",
-    "idf.toolsPath": "/Users/evolentini/.espressif",
+    "idf.port": "/dev/ttyUSB0",
+    "idf.toolsPath": "/home/damian/.espressif",
     "idf.customExtraVars": {
         "OPENOCD_SCRIPTS": "/Users/evolentini/.espressif/tools/openocd-esp32/v0.11.0-esp32-20221026/openocd-esp32/share/openocd/scripts",
         "ESP_ROM_ELF_DIR": "/Users/evolentini/.espressif/tools/esp-rom-elfs/20220823/",
