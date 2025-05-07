@@ -194,10 +194,10 @@ void toggleTask(void *pvParameters) {
         }
 
         // --- Reset (PB2) ---
-        if (bits & EV_BIT_RESET) {
+         if ((bits & EV_BIT_RESET) && (botonesEstado.arrancar == 0)) {
             PB2State = !PB2State;
             // resetea el cronómetro a cero de inmediato
-            if (xSemaphoreTake(semDecimas, portMAX_DELAY) == pdTRUE) {
+            if (xSemaphoreTake(semDecimas, portMAX_DELAY) == pdTRUE ){
                 decimas = 0;
                 xSemaphoreGive(semDecimas);
             }  
