@@ -6,6 +6,8 @@
 #include "digitos.h"
 #include "esp_log.h"
 #include "driver/gpio.h"
+#include "button_events.h"    // donde están xButtonEventGroup y los EV_BIT_…
+
 
 // Parámetros de dibujo de dígitos
 #define DIGITO_ANCHO     60
@@ -23,13 +25,15 @@
 #define LED_AZUL   GPIO_NUM_17
 
 // Definición de pines para botones (configurados con pull-up)
-#define PB1   GPIO_NUM_35
-#define PB2   GPIO_NUM_22
-#define PB3   GPIO_NUM_21
+// #define PB1   GPIO_NUM_35
+// #define PB2   GPIO_NUM_22
+// #define PB3   GPIO_NUM_21
 
 // Variables sincronización
 SemaphoreHandle_t semDecimas;
 SemaphoreHandle_t semParciales;
+
+extern SemaphoreHandle_t semDecimas;
 
 // Variable global: cada incremento representa 1 décima de segundo (10 ms)
 uint32_t decimas = 0;
@@ -59,6 +63,7 @@ panel_mt PanelPPL;
 // Solo se incrementa si "arrancar" está activo.
 void decimasTask(void *pvParameters) {
     TickType_t xLastWakeTime = xTaskGetTickCount();
+    
     while (true) {
         if (xSemaphoreTake(semDecimas, portMAX_DELAY) == pdTRUE) {
             if (botonesEstado.reset && !botonesEstado.arrancar)
@@ -137,6 +142,15 @@ void displayTask(void *pvParameters) {
             xSemaphoreGive(semParciales);
         }
 
+        if (decimas == 0)
+            if (xSemaphoreTake(semParciales, portMAX_DELAY) == pdTRUE) {
+                parciales[3] = 0;
+                parciales[2] = 0;
+                parciales[1] = 0;
+                parciales[0] = 0;
+               xSemaphoreGive(semParciales);
+            }
+
         // Muestra parciales en pantalla
         char buf[16];
         for (int i = 0; i < 3; i++) {
@@ -152,38 +166,54 @@ void displayTask(void *pvParameters) {
     }
 }
 
-// Tarea que lee los botones cada 300 ms y alterna (toggle) el estado de los LEDs correspondientes.
+// Tarea que lee los botones cada 30 ms y alterna (toggle) el estado de los LEDs correspondientes.
+
 void toggleTask(void *pvParameters) {
-    int prevPB1 = 1, prevPB2 = 1, prevPB3 = 1;
-    int PB1State = 1, PB2State = 1, PB3State = 1;
+    // Estados internos que replican la lógica anterior
+    static int PB1State = 1, PB2State = 1, PB3State = 1;
+    EventBits_t bits;
 
-    while (1) {
-        int currPB1 = gpio_get_level(PB1);
-        int currPB2 = gpio_get_level(PB2);
-        int currPB3 = gpio_get_level(PB3);
+    for (;;) {
+        // Espera bloqueante a cualquiera de los 3 eventos y limpia el bit capturado
+        bits = xEventGroupWaitBits(
+            xButtonEventGroup,
+            EV_BIT_START_STOP   |  // PB1
+            EV_BIT_RESET        |  // PB2
+            EV_BIT_FUNC_CHANGE,    // PB3
+            pdTRUE,                // limpiar bit al tomarlo
+            pdFALSE,               // basta cualquiera, no todos
+            portMAX_DELAY         // sin tiempo de espera
+        );
 
-        botonesEstado.reset = !currPB2;
-
-        if (currPB1 == 0 && prevPB1 == 1) {
+        // --- Start/Stop (PB1) ---
+        if (bits & EV_BIT_START_STOP) {
             PB1State = !PB1State;
             botonesEstado.arrancar = !PB1State;
+            // cuando se detiene, habilita “congelar”
             botonesEstado.congelar = (botonesEstado.arrancar == 0);
         }
-        if (currPB2 == 0 && prevPB2 == 1) {
+
+        // --- Reset (PB2) ---
+        if (bits & EV_BIT_RESET) {
             PB2State = !PB2State;
+            // resetea el cronómetro a cero de inmediato
+            if (xSemaphoreTake(semDecimas, portMAX_DELAY) == pdTRUE) {
+                decimas = 0;
+                xSemaphoreGive(semDecimas);
+            }  
+            // y despeja el flag de “congelar”
             botonesEstado.congelar = 0;
         }
-        if (currPB3 == 0 && prevPB3 == 1) {
+
+        // --- Función (PB3) ###
+        if (bits & EV_BIT_FUNC_CHANGE) {
             PB3State = !PB3State;
+            // Aquí puede rotar entre modos: cronómetro, reloj, alarma…
+            // e.g. botonesEstado.modo = PB3State;
         }
-
-        prevPB1 = currPB1;
-        prevPB2 = currPB2;
-        prevPB3 = currPB3;
-
-        vTaskDelay(pdMS_TO_TICKS(30));
     }
 }
+
 
 // Tarea que actualiza el estado de los LEDs de estatus.
 void LedStatusTask(void *pvParameters) {
@@ -213,6 +243,9 @@ StaticTask_t xToggleTaskBuffer;
 StackType_t xToggleStack[STACK_SIZE];
 StaticTask_t xLedStatusTaskBuffer;
 StackType_t xLedStatusStack[STACK_SIZE];
+StaticTask_t xButtonEventsTaskBuffer;
+StackType_t xButtonEventsStatusStack[STACK_SIZE];
+
 
 void app_main(void) {
     // Inicializa LCD
@@ -248,13 +281,15 @@ void app_main(void) {
     gpio_set_level(LED_VERDE, 1);
     gpio_set_level(LED_AZUL, 1);
 
+    ButtonEvents_Init();
+
     // Configura pines botones
-    gpio_set_direction(PB1, GPIO_MODE_INPUT);
-    gpio_pullup_en(PB1);
-    gpio_set_direction(PB2, GPIO_MODE_INPUT);
-    gpio_pullup_en(PB2);
-    gpio_set_direction(PB3, GPIO_MODE_INPUT);
-    gpio_pullup_en(PB3);
+    // gpio_set_direction(PB1, GPIO_MODE_INPUT);
+    // gpio_pullup_en(PB1);
+    // gpio_set_direction(PB2, GPIO_MODE_INPUT);
+    // gpio_pullup_en(PB2);
+    // gpio_set_direction(PB3, GPIO_MODE_INPUT);
+    // gpio_pullup_en(PB3);
 
     // Crea tareas
     xTaskCreateStatic(decimasTask, "DecimasTask", STACK_SIZE, NULL,
@@ -269,6 +304,12 @@ void app_main(void) {
     xTaskCreateStatic(LedStatusTask, "LedStatusTask", STACK_SIZE, NULL,
                       tskIDLE_PRIORITY + 1,
                       xLedStatusStack, &xLedStatusTaskBuffer);
+
+
+    
+    xTaskCreateStatic(ButtonEvents_Task, "BtnEvt", STACK_SIZE, NULL,
+                     tskIDLE_PRIORITY+2, 
+                     xButtonEventsStatusStack, &xButtonEventsTaskBuffer);                  
 
     // Termina tarea principal
     vTaskDelete(NULL);
